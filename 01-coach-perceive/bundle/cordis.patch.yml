@@ -1,0 +1,3 @@
+- insert:
+    - id: coach-perceive-v3
+      name: '@local/dsh-coach-perceive-v3'

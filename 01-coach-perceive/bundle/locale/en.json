@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Game Perception Bridge",
+    "description": "Read-only screen perception: resident capture, change diffing, local OCR, and on-demand frames — so the model can read the board without screenshotting every turn."
+  }
+}

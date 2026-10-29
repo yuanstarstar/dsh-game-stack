@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Game Coach">
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#1f6feb" opacity="0.14"/>
+  <g fill="#1f6feb">
+    <path d="M32 11a7.2 7.2 0 0 1 4 13.2l1.9 5.5H26.1l1.9-5.5A7.2 7.2 0 0 1 32 11Z"/>
+    <path d="M21.8 32.4h20.4l3.8 16.4H18l3.8-16.4Z" opacity="0.85"/>
+    <rect x="14" y="51.2" width="36" height="4.4" rx="2.2"/>
+  </g>
+</svg>

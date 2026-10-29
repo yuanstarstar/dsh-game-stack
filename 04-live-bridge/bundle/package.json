@@ -1,0 +1,33 @@
+{
+  "name": "@local/dsh-live-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "直播桥：只做两件事——读 B 站直播间弹幕、让大肥鱼说话（火山 TTS）。登录凭证与语音 key 各自单独存。",
+  "license": "MIT",
+  "main": "./host.js",
+  "exports": {
+    ".": "./host.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "host.js",
+    "client.js",
+    "lib/*.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
+  }
+}

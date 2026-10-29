@@ -1,0 +1,27 @@
+{
+  "name": "@local/dsh-coach-perceive-v3",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "游戏感知+操作 sidecar 桥：看盘（now/diff/snapshot/OCR）、动手（drive/key/click_text）",
+  "exports": {
+    ".": "./host.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "host.js",
+    "sidecar/coachd.py",
+    "sidecar/obsclient.py",
+    "locale",
+    "icon.svg",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -1,0 +1,3 @@
+- insert:
+    - id: game-learn-v2
+      name: '@local/dsh-game-learn-v2'

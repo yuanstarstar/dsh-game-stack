@@ -1,0 +1,19 @@
+{
+  "name": "@local/dsh-cv-recall",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "感知编译器：用一次多模态校准把游戏画面编译成常驻的纯本地视觉（numpy），之后每帧零 token 认出实体与场景",
+  "exports": {
+    ".": "./host.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24"
+  }
+}

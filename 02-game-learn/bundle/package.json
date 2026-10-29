@@ -1,0 +1,26 @@
+{
+  "name": "@local/dsh-game-learn-v2",
+  "version": "0.2.1",
+  "private": true,
+  "type": "module",
+  "description": "游戏学习：回合制教练（知识库）+ 规则工作台（决策引擎）+ 防幻觉闸门（读数契约），合并成一个侧边栏入口。",
+  "exports": {
+    ".": "./host.js",
+    "./client": "./client.js",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "slots",
+        "locale"
+      ]
+    }
+  }
+}
