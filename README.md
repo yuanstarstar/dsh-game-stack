@@ -51,3 +51,15 @@
 2. `flow_*` 要等场景识别稳定后再 `flow_learn`，否则会反推出一套错的阶段机。
 3. `coach_*` 依赖 Python 侧车；缺 numpy/Pillow 会在工具回执里直说。
 4. `live_*` 的发弹幕/说话需要真凭据，属"你自己填"的部分。
+
+## 变更记录
+
+### 2026-11-01 · 修「两字以内文本被过滤」
+
+- `01-coach-perceive`：`sidecar/coachd.py` 新增 `ocr_rescue()`（补边距放大 + 横向拼三份投票），
+  接进 `/snapshot`、`/ocr`、`/click_text`；抢救结果带 `weak=true`，`coach_snapshot` 会打
+  「短文本抢救，置信度低」，`coach_click_text` 会提醒点完复核。
+  新增 `tools/test_short_ocr.py`（5 项断言，全部通过）。
+- `03-cv-recall`：`sidecar/pcv/text.py::_plausible` 不再一律丢单字行，
+  只丢"框很小很扁、像图标"的（高<14 / 宽<10 / 宽高比>4）。
+- 已知限制：单个数字、单个拉丁字母仍可能读不出（WinRT 引擎限制），这类 UI 用坐标点击。

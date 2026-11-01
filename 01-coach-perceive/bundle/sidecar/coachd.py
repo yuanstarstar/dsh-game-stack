@@ -35,7 +35,7 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 # ---------------------------------------------------------------- 常量 / 工具
 
@@ -810,6 +810,106 @@ def ocr_pil(img: Image.Image, scale: float = 1.0) -> dict:
             os.unlink(png)
         except OSError:
             pass
+
+
+def _bg_color(img: Image.Image) -> tuple:
+    """取画面主色：给放大/拼接补边用。补黑边会被 OCR 当成字，补主色最安全。"""
+    try:
+        small = img.convert("RGB").resize((32, 32), Image.NEAREST)
+        buckets: dict = {}
+        sums: dict = {}
+        for p in small.getdata():
+            key = (p[0] // 16, p[1] // 16, p[2] // 16)
+            buckets[key] = buckets.get(key, 0) + 1
+            s = sums.get(key) or [0, 0, 0]
+            sums[key] = [s[0] + p[0], s[1] + p[1], s[2] + p[2]]
+        if not buckets:
+            return (0, 0, 0)
+        key = max(buckets.items(), key=lambda kv: kv[1])[0]
+        n = buckets[key]
+        s = sums[key]
+        return (s[0] // n, s[1] // n, s[2] // n)
+    except Exception:  # noqa: BLE001
+        return (0, 0, 0)
+
+
+def _shrink_repeat(text: str) -> str:
+    """把「敌 敌 敌」这种重复拼版的结果还原成最短周期（拼版是为了骗 OCR，结果要去重）。"""
+    t = re.sub(r"\s+", "", str(text or ""))
+    if not t:
+        return ""
+    for p in range(1, len(t) // 2 + 1):
+        if len(t) % p == 0 and t == t[:p] * (len(t) // p):
+            return t[:p]
+    return t
+
+
+def ocr_rescue(img: Image.Image) -> dict:
+    """短文本抢救：WinRT OCR 几乎认不出孤立的 1~2 个字（实测单个「是/否/敌/1」全空，
+    两字要 3 倍放大 + 边距才认得出）。两条路子：
+      ① 补主色边距 + 3~4.5 倍放大；
+      ② 横向重复三份同一个字形——有了"词"的上下文才认得出，结果按最短周期还原。
+    返回的行都带 weak=True：调用方必须当低置信度，不能当硬证据。"""
+    img = img.convert("RGB")
+    bg = _bg_color(img)
+    pad = max(8, int(img.height * 0.3))
+    padded = ImageOps.expand(img, border=pad, fill=bg)
+    out = {"weak": True, "tiled": False, "lines": []}
+
+    for factor in (3.0, 4.5):
+        big = padded.resize(
+            (max(1, int(padded.width * factor)), max(1, int(padded.height * factor))), Image.LANCZOS
+        )
+        res = ocr_pil(big, 1.0)
+        lines = normalize_lines(res)
+        if lines:
+            for ln in lines:
+                ln["x"] = int(ln["x"] / factor) - pad
+                ln["y"] = int(ln["y"] / factor) - pad
+                ln["w"] = max(1, int(ln["w"] / factor))
+                ln["h"] = max(1, int(ln["h"] / factor))
+                ln["weak"] = True
+            out["lines"] = lines
+            out["engine"] = res.get("engine")
+            return out
+
+    # ② 拼版投票：WinRT 对孤立单字几乎不出结果，但只要把同一个字横向重复 3 份，
+    #    再放大到某个尺度就能认出来——而且"哪个尺度能认"因字而异（实测「是」要 6×pad0.4、
+    #    「敌」4×~8× 都行、「否」6×）。所以跑一个小矩阵、按票数取，比赌一个参数稳。
+    votes: dict = {}
+    engine = None
+    for factor, padf, tiles in ((6.0, 0.4, 3), (4.0, 0.4, 3), (8.0, 0.4, 3), (6.0, 0.8, 3), (6.0, 0.4, 1)):
+        pad2 = max(3, int(img.height * padf))
+        base = ImageOps.expand(img, border=pad2, fill=bg)
+        gap = max(8, int(base.height * 0.5))
+        w = base.width * tiles + gap * (tiles - 1)
+        canvas = Image.new("RGB", (w, base.height), bg)
+        for i in range(tiles):
+            canvas.paste(base, (i * (base.width + gap), 0))
+        big = canvas.resize((max(1, int(canvas.width * factor)), max(1, int(canvas.height * factor))), Image.LANCZOS)
+        res = ocr_pil(big, 1.0)
+        engine = engine or res.get("engine")
+        for ln in normalize_lines(res):
+            t = _shrink_repeat(ln.get("text") or "")
+            if t:
+                votes[t] = votes.get(t, 0) + 1
+    out["tiled"] = True
+    out["engine"] = engine
+    if votes:
+        # 得票数 >=2 的才算数；全是一票时取票数最高的那个
+        best = [t for t, n in votes.items() if n >= 2] or [max(votes.items(), key=lambda kv: kv[1])[0]]
+        out["votes"] = votes
+        out["lines"] = [
+            {
+                "text": " ".join(best),
+                "x": 0,
+                "y": 0,
+                "w": int(img.width),
+                "h": int(img.height),
+                "weak": True,
+            }
+        ]
+    return out
 
 
 def _ocr_dispatch(png: str) -> dict:
@@ -2524,11 +2624,20 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception:  # noqa: BLE001
                         meta["coveredBy"] = None
                 if body.get("ocr"):
-                    res = ocr_pil(to_pil(img), _ocr_scale(body))
-                    meta["ocr"] = abs_lines(normalize_lines(res), r)
+                    pil = to_pil(img)
+                    res = ocr_pil(pil, _ocr_scale(body))
+                    lines = abs_lines(normalize_lines(res), r)
+                    if not lines and body.get("rescue") is not False:
+                        # 整片只读空 = 多半是只有一两个字的按钮：放大 + 拼版抢救
+                        rs = ocr_rescue(pil)
+                        lines = abs_lines(normalize_lines(rs), r)
+                        if rs.get("lines"):
+                            meta["ocrWeak"] = True
+                            meta["ocrVotes"] = rs.get("votes")
+                    meta["ocr"] = lines
                     meta["ocrLang"] = res.get("lang")
                     meta["ocrMs"] = res.get("ms")
-                    meta["scene"] = classify_scene(normalize_lines(res))
+                    meta["scene"] = classify_scene(lines)
                 return {"snapshot": meta}
             return self._ok(snap)
 
@@ -2590,12 +2699,20 @@ class Handler(BaseHTTPRequestHandler):
                     arr, r, _s, _t, _src = grab(body.get("region"))
                     img = to_pil(arr)
                 res = ocr_pil(img, _ocr_scale(body))
+                lines = abs_lines(normalize_lines(res), r)
+                weak = False
+                if not lines and body.get("rescue") is not False:
+                    # 只有一两字的小区域 OCR 常整片读不出：补边距放大 + 拼版再试一次
+                    rs = ocr_rescue(img)
+                    lines = abs_lines(normalize_lines(rs), r)
+                    weak = bool(rs.get("weak"))
                 return {
                     "region": list(r) if r else None,
                     "coord": "screen",
                     "lang": res.get("lang"),
                     "ms": res.get("ms"),
-                    "lines": abs_lines(normalize_lines(res), r),
+                    "weak": weak,
+                    "lines": lines,
                 }
             return self._ok(ocr_route)
 
@@ -2705,13 +2822,27 @@ class Handler(BaseHTTPRequestHandler):
                 if not needle:
                     raise ValueError("缺少 text：要点的文字")
                 img, r, _seq, _ts, _src = grab(None)
-                res = ocr_pil(to_pil(img), _ocr_scale(body))
+                pil = to_pil(img)
+                res = ocr_pil(pil, _ocr_scale(body))
                 lines = abs_lines(normalize_lines(res), r)
                 cands = [ln for ln in lines if needle in ln["text"]]
                 if not cands:
                     cands = [ln for ln in lines if needle.replace(" ", "") in ln["text"].replace(" ", "")]
+                weak = False
                 if not cands:
-                    raise RuntimeError(f"画面里没找到「{needle}」。OCR 到的行：" + " / ".join(ln["text"] for ln in lines[:10]))
+                    # 一两字的按钮 WinRT 基本认不出（实测「是」「否」「1」全空）：
+                    # 补主色边距 + 放大 + 横向拼三份再试一次，结果标成 weak 低置信度
+                    rs = ocr_rescue(pil)
+                    rl = abs_lines(normalize_lines(rs), r)
+                    cands = [ln for ln in rl if needle in ln["text"] or needle.replace(" ", "") in ln["text"].replace(" ", "")]
+                    if cands:
+                        weak = True
+                        lines = rl + lines
+                if not cands:
+                    hint = "（这个词只有 1~2 个字，OCR 认不准——可以改用 coach_click 直接给坐标）" if len(needle) <= 2 else ""
+                    raise RuntimeError(
+                        f"画面里没找到「{needle}」{hint}。OCR 到的行：" + " / ".join(ln["text"] for ln in lines[:10])
+                    )
                 idx = max(0, min(len(cands) - 1, int(body.get("index") or 0)))
                 ln = cands[idx]
                 x = ln["x"] + ln["w"] // 2
@@ -2723,7 +2854,11 @@ class Handler(BaseHTTPRequestHandler):
                     INPUT.ensure_foreground(int(ANCHOR.get("hwnd") or 0), restore=body.get("restore") is not False)
                     sent = INPUT.click(x, y)
                 log_input({"at": round(time.time(), 3), "x": x, "y": y, "via": "click_text", "text": ln["text"]})
-                return {"clicked": {"x": x, "y": y, "text": ln["text"]}, "sent": sent, "matches": len(cands)}
+                out = {"clicked": {"x": x, "y": y, "text": ln["text"]}, "sent": sent, "matches": len(cands)}
+                if weak:
+                    out["weak"] = True
+                    out["note"] = "这是靠「放大+拼版」抢救出来的短文本，置信度低：点完请用 coach_snapshot 复核"
+                return out
             return self._ok(click_text_route)
 
         if path == "/entities":

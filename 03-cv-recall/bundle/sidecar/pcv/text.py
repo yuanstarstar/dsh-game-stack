@@ -423,8 +423,13 @@ def _plausible(lines, crop_h: int):
         txt = str(ln.get("text") or "")
         if not re.search(r"[0-9A-Za-z" + _CJK + "]", txt):
             continue
-        if len(set(_norm(txt))) < 2:          # 只有一个字的"行"多半是图标落单
-            continue
+        # 以前这里把"只有一个不同字符"的行一律丢掉（本意是剔掉图标落单），
+        # 结果把「是/否/敌/我/1」这类单字按钮全吃了——用户实测「两字内文本被过滤」。
+        # 现在只丢确实像图标的：单字 + 框很小或很扁；正常大小的单字放行。
+        if len(set(_norm(txt))) < 2:
+            w = int(ln.get("w") or 0)
+            if h < 14 or w < 10 or w > max(56, h * 4):
+                continue
         hs = ln.get("hs")
         if hs is not None and float(hs) > HS_LINE:
             continue

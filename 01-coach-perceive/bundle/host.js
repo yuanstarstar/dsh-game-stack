@@ -468,7 +468,8 @@ export function apply(ctx, config) {
           s.changedTiles === null || s.changedTiles === undefined ? '变化格：基线' : `变化格：${s.changedTiles}/${s.tiles[0] * s.tiles[1]}`,
         ]
         if (s.ocr) {
-          lines.push(`OCR（${s.ocrLang}，耗时 ${s.ocrMs}ms，${s.ocr.length} 行；坐标=屏幕绝对坐标）：`)
+          const weakTag = s.ocrWeak ? '（短文本抢救，置信度低，仅作线索）' : ''
+          lines.push(`OCR（${s.ocrLang}，耗时 ${s.ocrMs}ms，${s.ocr.length} 行${weakTag}；坐标=屏幕绝对坐标）：`)
           for (const ln of s.ocr.slice(0, 120)) lines.push(`  [${ln.x},${ln.y} ${ln.w}x${ln.h}] ${ln.text}`)
         }
         if (s.coveredBy?.title) {
@@ -1088,7 +1089,8 @@ export function apply(ctx, config) {
         }
         const a = args && typeof args === 'object' ? args : {}
         const data = await side.call('/click_text', { text: a.text, index: a.index ?? 0, dy: a.dy ?? 0 }, cfg.callTimeoutMs)
-        return { text: `点了「${data.clicked.text}」→ (${data.clicked.x},${data.clicked.y})，候选 ${data.matches} 个` }
+        const weakNote = data.weak ? '\n⚠ 这是短文本抢救（放大+拼版）认出来的，置信度低：点完用 coach_snapshot 复核一眼。' : ''
+        return { text: `点了「${data.clicked.text}」→ (${data.clicked.x},${data.clicked.y})，候选 ${data.matches} 个${weakNote}` }
       },
     })
   })

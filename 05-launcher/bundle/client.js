@@ -154,6 +154,12 @@ window.__ModuleLoader__.load({
 			"instance.delete": "删除",
 			"instance.deleteHint": "删除实例会移除它的游戏文件与内容，且不可恢复。",
 			"instance.deleteConfirm": "确认删除实例「{name}」？",
+			"instance.check": "检查更新",
+			"instance.checking": "检查中…",
+			"instance.hideCheck": "收起结果",
+			"instance.checkTitle": "更新检查",
+			"instance.checkOk": "已是最新",
+			"instance.checkProblem": "有 {count} 个问题",
 			"instance.installError": "安装错误：{error}",
 			"instance.activeJobs": "进行中的任务",
 			"instance.job": "任务",
@@ -416,6 +422,12 @@ window.__ModuleLoader__.load({
 			"instance.delete": "Delete",
 			"instance.deleteHint": "Deleting an instance removes its game files and content permanently.",
 			"instance.deleteConfirm": "Delete instance \"{name}\"?",
+			"instance.check": "Check updates",
+			"instance.checking": "Checking…",
+			"instance.hideCheck": "Hide result",
+			"instance.checkTitle": "Update check",
+			"instance.checkOk": "Up to date",
+			"instance.checkProblem": "{count} problem(s)",
 			"instance.installError": "Install error: {error}",
 			"instance.activeJobs": "Active tasks",
 			"instance.job": "Task",
@@ -1811,6 +1823,7 @@ window.__ModuleLoader__.load({
 			const [confirm, setConfirm] = react.useState(null);
 			const [logs, setLogs] = react.useState(null);
 			const [openBusy, setOpenBusy] = react.useState({});
+			const [check, setCheck] = react.useState(null);
 			const markBusy = (id, value) => setBusy((current) => Object.assign({}, current && typeof current === "object" ? current : {}, { [id]: value }));
 			const markOpen = (key, value) => setOpenBusy((current) => Object.assign({}, current && typeof current === "object" ? current : {}, { [key]: value }));
 			const launch = async (instance) => {
@@ -1889,6 +1902,41 @@ window.__ModuleLoader__.load({
 					setLogs(null);
 				}
 			};
+			const checkValueText = (value) => {
+				if (value === true) return "✓";
+				if (value === false) return "✗";
+				if (value && typeof value === "object") {
+					try {
+						return JSON.stringify(value);
+					} catch (error) {
+						return String(value);
+					}
+				}
+				return String(value === undefined || value === null ? "" : value);
+			};
+			const runCheck = async (instance) => {
+				const id = scalarText(instance && instance.id, "");
+				if (!id) return;
+				if (check && check.id === id && !check.loading) {
+					setCheck(null);
+					return;
+				}
+				setCheck({ id: id, loading: true, ok: null, problems: [], checks: [] });
+				try {
+					const data = await post(instancePath(id, "/verify"), {});
+					const rawChecks = data && data.checks && typeof data.checks === "object" ? data.checks : {};
+					setCheck({
+						id: id,
+						loading: false,
+						ok: !(data && data.ok === false),
+						problems: data && Array.isArray(data.problems) ? data.problems.map((item) => brandSafe(scalarText(item, ""))) : [],
+						checks: Object.keys(rawChecks).map((key) => ({ key: key, value: brandSafe(checkValueText(rawChecks[key])) })),
+					});
+				} catch (error) {
+					props.toast(t("toast.failed", { error: errText(t, error) }));
+					setCheck(null);
+				}
+			};
 			if (!instances.length) {
 				return h("div", { className: "dsl_section" }, h("div", { className: "dsl_section_title" }, t("detail.instances")), h("div", { className: "dsl_empty_hint" }, t("detail.noInstances")));
 			}
@@ -1940,6 +1988,7 @@ window.__ModuleLoader__.load({
 								? h(Btn, { onClick: () => setConfirm({ id: id, kind: "stop" }), disabled: !!busyValue }, busyValue === "stop" ? t("instance.stopping") : t("instance.stop"))
 								: h(Btn, { variant: "primary", onClick: () => launch(instance), disabled: false }, busyValue === "launch" ? t("instance.launching") : t("instance.launch")),
 							h(Btn, { onClick: () => loadLog(instance), disabled: false }, logs && logs.id === id && !logs.loading ? t("instance.hideLog") : t("instance.log")),
+							h(Btn, { onClick: () => runCheck(instance), disabled: false }, check && check.id === id && !check.loading ? t("instance.hideCheck") : t("instance.check")),
 							h(Btn, { onClick: () => openFolder(instance, "game"), disabled: !!openBusy[id + ":game"] }, t("instance.openGame")),
 							h(Btn, { onClick: () => openFolder(instance, "content"), disabled: !supportsContent(game) || !!openBusy[id + ":content"] }, t("instance.openContent")),
 							h(Btn, { variant: "danger", onClick: () => setConfirm({ id: id, kind: "delete" }), disabled: running || installing || !!busyValue }, t("instance.delete"))
@@ -1969,6 +2018,30 @@ window.__ModuleLoader__.load({
 										h(Btn, { variant: "ghost", onClick: () => openFolder(instance, "logs") }, t("instance.logsFolder"))
 									),
 									h("pre", { className: "dsl_log" }, logs.loading ? t("instance.logLoading") : logs.lines.length ? logs.lines.join("\n") : t("instance.logEmpty"))
+								)
+							: null,
+						check && check.id === id
+							? h(
+									"div",
+									{ className: "dsl_section" },
+									h(
+										"div",
+										{ className: "dsl_row" },
+										h("span", { className: "dsl_section_hint" }, t("instance.checkTitle")),
+										check.loading ? h("span", { className: "dsl_hint" }, t("instance.checking")) : null,
+										h("span", { className: "dsl_footer_spacer" }),
+										check.loading
+											? null
+											: h(Badge, { tone: check.ok ? "on" : "warn" }, check.ok ? t("instance.checkOk") : t("instance.checkProblem", { count: check.problems.length }))
+									),
+									check.loading ? null : check.problems.length ? h("div", { className: "dsl_hint" }, check.problems.join("；")) : null,
+									check.loading
+										? null
+										: h(
+												"div",
+												{ className: "dsl_list" },
+												check.checks.map((item) => h("div", { key: item.key, className: "dsl_hint" }, item.key + "：" + item.value))
+											)
 								)
 							: null
 					);
